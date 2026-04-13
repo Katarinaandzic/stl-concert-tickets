@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>STL Concert Tickets - Cheapest Prices</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f0f23; color: #e0e0e0; min-height: 100vh; }
+    .header { background: linear-gradient(135deg, #1a1a3e, #2d1b69); padding: 30px 20px; text-align: center; border-bottom: 2px solid #6c3ce0; }
+    .header h1 { font-size: 2rem; color: #fff; margin-bottom: 5px; }
+    .header p { color: #a0a0cc; font-size: 1rem; }
+    .controls { max-width: 900px; margin: 20px auto; padding: 0 20px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .controls select, .controls input { background: #1a1a3e; color: #e0e0e0; border: 1px solid #333366; padding: 10px 14px; border-radius: 8px; font-size: 0.95rem; }
+    .controls select:focus, .controls input:focus { outline: none; border-color: #6c3ce0; }
+    .controls input { flex: 1; min-width: 200px; }
+    .stats { max-width: 900px; margin: 10px auto; padding: 0 20px; display: flex; gap: 15px; flex-wrap: wrap; }
+    .stat-card { background: #1a1a3e; border: 1px solid #333366; border-radius: 10px; padding: 15px 20px; flex: 1; min-width: 150px; text-align: center; }
+    .stat-card .num { font-size: 1.6rem; font-weight: 700; color: #6c3ce0; }
+    .stat-card .label { font-size: 0.8rem; color: #888; margin-top: 4px; }
+    .container { max-width: 900px; margin: 20px auto; padding: 0 20px 40px; }
+    .loading { text-align: center; padding: 60px; color: #888; }
+    .spinner { display: inline-block; width: 40px; height: 40px; border: 3px solid #333366; border-top-color: #6c3ce0; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 15px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .card { background: #1a1a3e; border: 1px solid #333366; border-radius: 12px; padding: 20px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; transition: border-color 0.2s, transform 0.2s; }
+    .card:hover { border-color: #6c3ce0; transform: translateY(-2px); }
+    .card-left { flex: 1; }
+    .card-left h3 { font-size: 1.1rem; color: #fff; margin-bottom: 6px; }
+    .card-left .venue { color: #a0a0cc; font-size: 0.9rem; margin-bottom: 4px; }
+    .card-left .date { color: #888; font-size: 0.85rem; }
+    .card-right { text-align: right; min-width: 120px; }
+    .price { font-size: 1.5rem; font-weight: 700; color: #4ade80; }
+    .price.na { color: #666; font-size: 1rem; }
+    .btn { display: inline-block; margin-top: 8px; padding: 8px 18px; background: #6c3ce0; color: #fff; text-decoration: none; border-radius: 6px; font-size: 0.85rem; transition: background 0.2s; }
+    .btn:hover { background: #5a2dc5; }
+    .no-results { text-align: center; padding: 60px; color: #666; font-size: 1.1rem; }
+    .error { text-align: center; padding: 40px; color: #ef4444; }
+    @media (max-width: 600px) { .card { flex-direction: column; align-items: flex-start; } .card-right { margin-top: 12px; text-align: left; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>STL Concert Tickets</h1>
+    <p>Cheapest ticket prices for upcoming concerts in St. Louis, MO</p>
+  </div>
+  <div class="controls">
+    <input type="text" id="search" placeholder="Search artists or venues...">
+    <select id="sort">
+      <option value="date">Sort by Date</option>
+      <option value="price-low">Price: Low to High</option>
+      <option value="price-high">Price: High to Low</option>
+      <option value="name">Sort by Artist</option>
+    </select>
+  </div>
+  <div class="stats" id="stats"></div>
+  <div class="container" id="concerts">
+    <div class="loading"><div class="spinner"></div><br>Loading concerts...</div>
+  </div>
+  <script>
+    const API_BASE = 'https://api.seatgeek.com/2';
+    const CLIENT_ID = 'Mzl5MzkwNjR8MTc0NDU4NjA0NS4wMDI1ODI4';
+    let allEvents = [];
+
+    async function fetchConcerts() {
+      try {
+        const now = new Date().toISOString().split('T')[0];
+        const params = new URLSearchParams({
+          'client_id': CLIENT_ID,
+          'venue.city': 'Saint Louis',
+          'venue.state': 'MO',
+          'type': 'concert',
+          'datetime_utc.gte': now,
+          'sort': 'datetime_utc.asc',
+          'per_page': 100
+        });
+        const res = await fetch(`${API_BASE}/events?${params}`);
+        if (!res.ok) throw new Error(`API error: ${res.status}`);
+        const data = await res.json();
+        allEvents = data.events || [];
+        renderStats();
+        renderConcerts();
+      } catch (err) {
+        document.getElementById('concerts').innerHTML = `<div class="error"><p>Could not load concerts. SeatGeek API may require a valid client ID.</p><p style="margin-top:10px;color:#888;font-size:0.9rem;">To fix: get a free API key at <a href="https://seatgeek.com/account/develop" style="color:#6c3ce0">seatgeek.com/account/develop</a> and replace CLIENT_ID in the code.</p><p style="margin-top:15px;color:#888;font-size:0.85rem;">Error: ${err.message}</p></div>`;
+      }
+    }
+
+    function renderStats() {
+      const withPrices = allEvents.filter(e => e.stats && e.stats.lowest_price);
+      const prices = withPrices.map(e => e.stats.lowest_price);
+      const avg = prices.length ? (prices.reduce((a, b) => a + b, 0) / prices.length).toFixed(0) : '—';
+      const min = prices.length ? Math.min(...prices) : '—';
+      document.getElementById('stats').innerHTML = `
+        <div class="stat-card"><div class="num">${allEvents.length}</div><div class="label">Upcoming Concerts</div></div>
+        <div class="stat-card"><div class="num">${prices.length ? '$' + min : '—'}</div><div class="label">Cheapest Ticket</div></div>
+        <div class="stat-card"><div class="num">${prices.length ? '$' + avg : '—'}</div><div class="label">Avg Lowest Price</div></div>
+      `;
+    }
+
+    function renderConcerts() {
+      const query = document.getElementById('search').value.toLowerCase();
+      const sort = document.getElementById('sort').value;
+      let filtered = allEvents.filter(e => {
+        const title = (e.title || '').toLowerCase();
+        const venue = (e.venue && e.venue.name || '').toLowerCase();
+        return title.includes(query) || venue.includes(query);
+      });
+      filtered.sort((a, b) => {
+        const pa = a.stats && a.stats.lowest_price || Infinity;
+        const pb = b.stats && b.stats.lowest_price || Infinity;
+        if (sort === 'price-low') return pa - pb;
+        if (sort === 'price-high') return (pb === Infinity ? -1 : pa === Infinity ? 1 : pb - pa);
+        if (sort === 'name') return (a.title || '').localeCompare(b.title || '');
+        return new Date(a.datetime_utc) - new Date(b.datetime_utc);
+      });
+      if (!filtered.length) {
+        document.getElementById('concerts').innerHTML = '<div class="no-results">No concerts found matching your search.</div>';
+        return;
+      }
+      document.getElementById('concerts').innerHTML = filtered.map(e => {
+        const date = new Date(e.datetime_utc + 'Z');
+        const dateStr = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+        const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+        const venue = e.venue ? e.venue.name : 'TBA';
+        const price = e.stats && e.stats.lowest_price ? `$${e.stats.lowest_price}` : null;
+        const url = e.url || '#';
+        return `<div class="card">
+          <div class="card-left">
+            <h3>${e.title}</h3>
+            <div class="venue">${venue}</div>
+            <div class="date">${dateStr} at ${timeStr}</div>
+          </div>
+          <div class="card-right">
+            <div class="price ${price ? '' : 'na'}">${price || 'Price TBA'}</div>
+            <a class="btn" href="${url}" target="_blank" rel="noopener">Buy Tickets</a>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    document.getElementById('search').addEventListener('input', renderConcerts);
+    document.getElementById('sort').addEventListener('change', renderConcerts);
+    fetchConcerts();
+  </script>
+</body>
+</html>
