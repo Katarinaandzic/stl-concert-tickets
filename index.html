@@ -57,42 +57,52 @@
     <div class="loading"><div class="spinner"></div><br>Loading concerts...</div>
   </div>
   <script>
-    const API_BASE = 'https://api.seatgeek.com/2';
-    const CLIENT_ID = 'Mzl5MzkwNjR8MTc0NDU4NjA0NS4wMDI1ODI4';
+    const API_KEY = 'GEgNEsmHKypyfOI2GhImg2cMmR24BRXE';
     let allEvents = [];
 
     async function fetchConcerts() {
       try {
-        const now = new Date().toISOString().split('T')[0];
-        const params = new URLSearchParams({
-          'client_id': CLIENT_ID,
-          'venue.city': 'Saint Louis',
-          'venue.state': 'MO',
-          'type': 'concert',
-          'datetime_utc.gte': now,
-          'sort': 'datetime_utc.asc',
-          'per_page': 100
-        });
-        const res = await fetch(`${API_BASE}/events?${params}`);
+        const now = new Date().toISOString().split('.')[0] + 'Z';
+        const url = `https://app.ticketmaster.com/discovery/v2/events.json?apikey=${API_KEY}&classificationName=music&city=Saint Louis&stateCode=MO&startDateTime=${now}&sort=date,asc&size=100`;
+        const res = await fetch(url);
         if (!res.ok) throw new Error(`API error: ${res.status}`);
         const data = await res.json();
-        allEvents = data.events || [];
+        if (data._embedded && data._embedded.events) {
+          allEvents = data._embedded.events;
+        } else {
+          allEvents = [];
+        }
         renderStats();
         renderConcerts();
       } catch (err) {
-        document.getElementById('concerts').innerHTML = `<div class="error"><p>Could not load concerts. SeatGeek API may require a valid client ID.</p><p style="margin-top:10px;color:#888;font-size:0.9rem;">To fix: get a free API key at <a href="https://seatgeek.com/account/develop" style="color:#6c3ce0">seatgeek.com/account/develop</a> and replace CLIENT_ID in the code.</p><p style="margin-top:15px;color:#888;font-size:0.85rem;">Error: ${err.message}</p></div>`;
+        document.getElementById('concerts').innerHTML = `<div class="error"><p>Could not load concerts.</p><p style="margin-top:15px;color:#888;font-size:0.85rem;">Error: ${err.message}</p></div>`;
       }
     }
 
+    function getLowestPrice(event) {
+      if (event.priceRanges && event.priceRanges.length > 0) {
+        let min = Infinity;
+        event.priceRanges.forEach(pr => { if (pr.min < min) min = pr.min; });
+        return min === Infinity ? null : min;
+      }
+      return null;
+    }
+
+    function getVenue(event) {
+      if (event._embedded && event._embedded.venues && event._embedded.venues.length > 0) {
+        return event._embedded.venues[0].name;
+      }
+      return 'TBA';
+    }
+
     function renderStats() {
-      const withPrices = allEvents.filter(e => e.stats && e.stats.lowest_price);
-      const prices = withPrices.map(e => e.stats.lowest_price);
-      const avg = prices.length ? (prices.reduce((a, b) => a + b, 0) / prices.length).toFixed(0) : '—';
-      const min = prices.length ? Math.min(...prices) : '—';
+      const prices = allEvents.map(getLowestPrice).filter(p => p !== null);
+      const avg = prices.length ? (prices.reduce((a, b) => a + b, 0) / prices.length).toFixed(0) : null;
+      const min = prices.length ? Math.min(...prices) : null;
       document.getElementById('stats').innerHTML = `
         <div class="stat-card"><div class="num">${allEvents.length}</div><div class="label">Upcoming Concerts</div></div>
-        <div class="stat-card"><div class="num">${prices.length ? '$' + min : '—'}</div><div class="label">Cheapest Ticket</div></div>
-        <div class="stat-card"><div class="num">${prices.length ? '$' + avg : '—'}</div><div class="label">Avg Lowest Price</div></div>
+        <div class="stat-card"><div class="num">${min !== null ? '$' + min : '\u2014'}</div><div class="label">Cheapest Ticket</div></div>
+        <div class="stat-card"><div class="num">${avg !== null ? '$' + avg : '\u2014'}</div><div class="label">Avg Lowest Price</div></div>
       `;
     }
 
@@ -100,37 +110,38 @@
       const query = document.getElementById('search').value.toLowerCase();
       const sort = document.getElementById('sort').value;
       let filtered = allEvents.filter(e => {
-        const title = (e.title || '').toLowerCase();
-        const venue = (e.venue && e.venue.name || '').toLowerCase();
+        const title = (e.name || '').toLowerCase();
+        const venue = getVenue(e).toLowerCase();
         return title.includes(query) || venue.includes(query);
       });
       filtered.sort((a, b) => {
-        const pa = a.stats && a.stats.lowest_price || Infinity;
-        const pb = b.stats && b.stats.lowest_price || Infinity;
+        const pa = getLowestPrice(a) || Infinity;
+        const pb = getLowestPrice(b) || Infinity;
         if (sort === 'price-low') return pa - pb;
         if (sort === 'price-high') return (pb === Infinity ? -1 : pa === Infinity ? 1 : pb - pa);
-        if (sort === 'name') return (a.title || '').localeCompare(b.title || '');
-        return new Date(a.datetime_utc) - new Date(b.datetime_utc);
+        if (sort === 'name') return (a.name || '').localeCompare(b.name || '');
+        return new Date(a.dates.start.dateTime || a.dates.start.localDate) - new Date(b.dates.start.dateTime || b.dates.start.localDate);
       });
       if (!filtered.length) {
         document.getElementById('concerts').innerHTML = '<div class="no-results">No concerts found matching your search.</div>';
         return;
       }
       document.getElementById('concerts').innerHTML = filtered.map(e => {
-        const date = new Date(e.datetime_utc + 'Z');
-        const dateStr = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-        const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-        const venue = e.venue ? e.venue.name : 'TBA';
-        const price = e.stats && e.stats.lowest_price ? `$${e.stats.lowest_price}` : null;
+        const dt = e.dates.start.dateTime ? new Date(e.dates.start.dateTime) : new Date(e.dates.start.localDate + 'T00:00:00');
+        const dateStr = dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+        const timeStr = e.dates.start.dateTime ? dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : 'TBA';
+        const venue = getVenue(e);
+        const price = getLowestPrice(e);
+        const priceStr = price !== null ? `$${price}` : null;
         const url = e.url || '#';
         return `<div class="card">
           <div class="card-left">
-            <h3>${e.title}</h3>
+            <h3>${e.name}</h3>
             <div class="venue">${venue}</div>
             <div class="date">${dateStr} at ${timeStr}</div>
           </div>
           <div class="card-right">
-            <div class="price ${price ? '' : 'na'}">${price || 'Price TBA'}</div>
+            <div class="price ${priceStr ? '' : 'na'}">${priceStr || 'Price TBA'}</div>
             <a class="btn" href="${url}" target="_blank" rel="noopener">Buy Tickets</a>
           </div>
         </div>`;
